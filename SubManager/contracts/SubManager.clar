@@ -269,6 +269,103 @@
     )
 )
 
+;; Advanced bulk subscription management and analytics function
+(define-public (process-bulk-subscription-operations 
+    (operation-type (string-ascii 20))
+    (subscriber-list (list 50 principal))
+    (plan-id uint)
+    (duration-months uint)
+)
+    (let (
+        (plan (unwrap! (map-get? subscription-plans { plan-id: plan-id }) ERR-PLAN-NOT-FOUND))
+        (cost-per-subscription (* (get price-per-month plan) duration-months))
+        (total-operations-cost (* cost-per-subscription (len subscriber-list)))
+    )
+        ;; Only contract owner can perform bulk operations
+        (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+        (asserts! (get is-active plan) ERR-INVALID-PLAN)
+        (asserts! (> (len subscriber-list) u0) ERR-INVALID-AMOUNT)
+        
+        ;; Process different types of bulk operations with standardized return type
+        (if (is-eq operation-type "bulk-subscribe")
+            (begin
+                ;; Create subscriptions for all users in the list
+                (map process-individual-subscription subscriber-list)
+                ;; Update global statistics for bulk subscription
+                (var-set total-revenue (+ (var-get total-revenue) total-operations-cost))
+                (var-set active-subscribers (+ (var-get active-subscribers) (len subscriber-list)))
+                (ok { 
+                    operation: "bulk-subscribe", 
+                    processed-count: (len subscriber-list),
+                    total-revenue-added: total-operations-cost,
+                    new-subscriber-count: (len subscriber-list),
+                    renewals-processed: u0,
+                    access-grants-processed: u0,
+                    granted-services: "none",
+                    total-subscribers: (var-get active-subscribers),
+                    total-revenue: (var-get total-revenue),
+                    plan-name: (get name plan),
+                    subscriber-list-count: (len subscriber-list)
+                })
+            )
+            (if (is-eq operation-type "bulk-renew")
+                (begin
+                    ;; Renew subscriptions for existing subscribers
+                    (map process-individual-renewal subscriber-list)
+                    ;; Update revenue statistics
+                    (var-set total-revenue (+ (var-get total-revenue) total-operations-cost))
+                    (ok {
+                        operation: "bulk-renew",
+                        processed-count: (len subscriber-list),
+                        total-revenue-added: total-operations-cost,
+                        new-subscriber-count: u0,
+                        renewals-processed: (len subscriber-list),
+                        access-grants-processed: u0,
+                        granted-services: "none",
+                        total-subscribers: (var-get active-subscribers),
+                        total-revenue: (var-get total-revenue),
+                        plan-name: (get name plan),
+                        subscriber-list-count: (len subscriber-list)
+                    })
+                )
+                (if (is-eq operation-type "bulk-grant-access")
+                    (begin
+                        ;; Grant special access permissions to subscriber list
+                        (map grant-premium-access subscriber-list)
+                        (ok {
+                            operation: "bulk-grant-access",
+                            processed-count: (len subscriber-list),
+                            total-revenue-added: u0,
+                            new-subscriber-count: u0,
+                            renewals-processed: u0,
+                            access-grants-processed: (len subscriber-list),
+                            granted-services: "premium-features,priority-support,beta-access",
+                            total-subscribers: (var-get active-subscribers),
+                            total-revenue: (var-get total-revenue),
+                            plan-name: (get name plan),
+                            subscriber-list-count: (len subscriber-list)
+                        })
+                    )
+                    ;; Default case for analytics and reporting
+                    (ok {
+                        operation: "analytics-report",
+                        processed-count: u0,
+                        total-revenue-added: u0,
+                        new-subscriber-count: u0,
+                        renewals-processed: u0,
+                        access-grants-processed: u0,
+                        granted-services: "none",
+                        total-subscribers: (var-get active-subscribers),
+                        total-revenue: (var-get total-revenue),
+                        plan-name: (get name plan),
+                        subscriber-list-count: (len subscriber-list)
+                    })
+                )
+            )
+        )
+    )
+)
+
 ;; Helper function for bulk subscription processing
 (define-private (process-individual-subscription (subscriber principal))
     (let ((payment-id (var-get next-payment-id)))
